@@ -2,6 +2,7 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const fs = require('fs');
 const path = require('path');
 const connectDB = require('./config/database');
 
@@ -11,12 +12,28 @@ dotenv.config();
 // Initialize Express app
 const app = express();
 
+// Behind reverse proxy (Render, Railway, Heroku, etc.) for correct HTTPS/client IP
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 // Connect to MongoDB
 connectDB();
 
+const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 // Middleware
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, false);
+    }
+  },
   credentials: true,
 }));
 
@@ -41,12 +58,24 @@ app.use('/api/admin', require('./routes/adminRoutes'));
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(err.status || 5000).json({
+  res.status(err.status || 500).json({
     success: false,
     message: err.message || 'Internal Server Error',
     error: process.env.NODE_ENV === 'production' ? {} : err,
   });
 });
+
+// Serve React build in production when deployed as a single app
+const clientBuildPath = path.join(__dirname, '../client/build');
+if (process.env.NODE_ENV === 'production' && fs.existsSync(clientBuildPath)) {
+  app.use(express.static(clientBuildPath));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+    res.sendFile(path.join(clientBuildPath, 'index.html'));
+  });
+}
 
 // 404 Not Found handler
 app.use((req, res) => {
