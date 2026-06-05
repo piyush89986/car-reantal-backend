@@ -20,21 +20,40 @@ if (process.env.NODE_ENV === 'production') {
 // Connect to MongoDB
 connectDB();
 
+const normalizeOrigin = (url) => url.replace(/\/$/, '');
+
 const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
   .split(',')
-  .map((origin) => origin.trim())
+  .map((origin) => normalizeOrigin(origin.trim()))
   .filter(Boolean);
+
+const isVercelOrigin = (origin) =>
+  /^https:\/\/[\w.-]+\.vercel\.app$/.test(origin);
 
 // Middleware
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(null, false);
+    if (!origin) {
+      return callback(null, true);
     }
+
+    const normalized = normalizeOrigin(origin);
+
+    if (
+      allowedOrigins.includes(normalized) ||
+      (process.env.CORS_ALLOW_VERCEL === 'true' && isVercelOrigin(normalized))
+    ) {
+      return callback(null, true);
+    }
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(`CORS blocked origin: ${normalized}. Allowed: ${allowedOrigins.join(', ')}`);
+    }
+    return callback(null, false);
   },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
 // Body parser middleware
